@@ -1,0 +1,11 @@
+# 本地凭据 / 日志（绝不提交）
+.workbuddy/
+checkin-rt.json
+checkin-cred.json
+notify_config.json
+checkin.log
+notifications.jsonl
+
+# Python
+__pycache__/
+*.pyc

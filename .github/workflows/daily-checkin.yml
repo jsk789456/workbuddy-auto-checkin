@@ -1,0 +1,57 @@
+name: WorkBuddy 每日自动签到
+
+on:
+  # 定时触发：每天北京时间 09:00（UTC 01:00）自动运行。
+  # GitHub Actions 的 cron 使用 UTC，且高负载时可能延迟几分钟到几十分钟，
+  # 属正常现象；如长时间未运行可在 Actions 页面手动 Run workflow 兜底。
+  schedule:
+    - cron: "0 1 * * *"
+  # 允许在 Actions 页面手动点击运行，便于首次验证 / 补签。
+  workflow_dispatch:
+
+# 仅需读取仓库内容；令牌通过仓库 Secrets 注入，不需要额外权限。
+permissions:
+  contents: read
+
+env:
+  TZ: Asia/Shanghai
+
+jobs:
+  checkin:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 配置 Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: 写入长效令牌（来自仓库 Secret，不落盘进仓库）
+        env:
+          WORKBUDDY_RT: ${{ secrets.WORKBUDDY_RT }}
+        run: |
+          mkdir -p ~/.workbuddy
+          python3 - <<'PY'
+          import json, os, time
+          rt = os.environ.get("WORKBUDDY_RT", "").strip()
+          if not rt:
+              raise SystemExit("未配置 Secret WORKBUDDY_RT，请在仓库 Settings → Secrets 中添加")
+          path = os.path.expanduser("~/.workbuddy/checkin-rt.json")
+          with open(path, "w", encoding="utf-8") as f:
+              json.dump({
+                  "v": 1,
+                  "rt": rt,
+                  "source": "github-actions",
+                  "saved_at": int(time.time()),
+                  "version": "3.1.7",
+              }, f, ensure_ascii=False, indent=2)
+          os.chmod(path, 0o600)
+          print("refresh-token 文件已写入（已脱敏，不打印明文）")
+          PY
+
+      - name: 执行签到 + 派猫猫旅行（通道 C，客户端不开也能签）
+        working-directory: ${{ github.workspace }}
+        run: python3 scripts/rt_auth.py --no-notify
