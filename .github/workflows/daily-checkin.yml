@@ -1,11 +1,15 @@
 name: WorkBuddy 每日自动签到
 
 on:
-  # 定时触发：每天北京时间 09:00（UTC 01:00）自动运行。
-  # GitHub Actions 的 cron 使用 UTC，且高负载时可能延迟几分钟到几十分钟，
-  # 属正常现象；如长时间未运行可在 Actions 页面手动 Run workflow 兜底。
+  # 定时触发，一天三次，全部刻意避开整点（GitHub 整点调度队列最拥挤，
+  # 延迟过大时 scheduled run 会被直接跳过，这是之前漏签的根因）。
+  # 签到接口本身幂等（重复调用返回「今日已签到，无需重复领取」），
+  # 所以多跑几次没有副作用，只作为漏签兜底。
+  #   北京 09:17 / 15:43 / 21:07
   schedule:
-    - cron: "0 1 * * *"
+    - cron: "17 1 * * *"   # 北京 09:17（早间主签）
+    - cron: "43 7 * * *"   # 北京 15:43（午后兜底）
+    - cron: "7 13 * * *"   # 北京 21:07（晚间最后兜底）
   # 允许在 Actions 页面手动点击运行，便于首次验证 / 补签。
   workflow_dispatch:
 
@@ -53,5 +57,18 @@ jobs:
           PY
 
       - name: 执行签到 + 派猫猫旅行（通道 C，客户端不开也能签）
+        id: checkin
         working-directory: ${{ github.workspace }}
         run: python3 scripts/rt_auth.py --no-notify
+
+      # 仅当签到失败时推送提醒（未配 NOTIFY_CONFIG 则自动跳过）
+      - name: 签到失败推送提醒
+        if: failure() && steps.checkin.outcome == 'failure' && secrets.NOTIFY_CONFIG != ''
+        env:
+          NOTIFY_CONFIG: ${{ secrets.NOTIFY_CONFIG }}
+        run: |
+          mkdir -p ~/.workbuddy/scripts
+          echo "$NOTIFY_CONFIG" > ~/.workbuddy/scripts/notify_config.json
+          python3 scripts/push_message.py --title "WorkBuddy 每日签到失败" \
+            --message "签到 workflow（${GITHUB_WORKFLOW} #${GITHUB_RUN_ID}）执行失败，请查看 Actions 日志" \
+            || echo "推送失败，忽略"
